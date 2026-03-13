@@ -20,8 +20,8 @@ export default function AgentPanel({
 }) {
   const store = useStore();
   const v = getVisuals(agent.name);
-  const isIdle = agent.status === "idle" || agent.status === "offline";
-  const isBusy = agent.status === "online" || agent.status === "busy";
+  const isIdle = (agent.status === "idle" || agent.status === "offline") && !agent.currentTask;
+  const isBusy = (agent.status === "online" || agent.status === "busy") && !!agent.currentTask;
 
   const [tab, setTab] = useState<Tab>(isBusy ? "chat" : "info");
   const [chatInput, setChatInput] = useState("");

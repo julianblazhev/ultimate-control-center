@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "@/lib/store";
 import AgentPanel from "@/components/AgentPanel";
+import PixelAvatar from "@/components/PixelAvatar";
 
 // -- Types --
 
@@ -853,47 +854,9 @@ function AgentSprite({
       )}
 
       {/* Pixel sprite body */}
-      <svg
-        width={spriteSize}
-        height={spriteSize}
-        viewBox="0 0 16 16"
-        className={animClass}
-        style={{ imageRendering: "pixelated" }}
-      >
-        {/* Shadow */}
-        <ellipse cx="8" cy="15.5" rx="5" ry="1.5" fill="rgba(0,0,0,0.3)" />
-
-        {/* Hair / Head top */}
-        <rect x="5" y="1" width="6" height="3" fill={agent.hairColor} />
-        <rect x="4" y="2" width="1" height="2" fill={agent.hairColor} />
-        <rect x="11" y="2" width="1" height="2" fill={agent.hairColor} />
-
-        {/* Face */}
-        <rect x="5" y="3" width="6" height="4" fill={agent.skinColor} />
-        <rect x="4" y="4" width="1" height="2" fill={agent.skinColor} />
-        <rect x="11" y="4" width="1" height="2" fill={agent.skinColor} />
-
-        {/* Eyes */}
-        <rect x="6" y="4" width="1" height="1" fill="#1a1a2e" />
-        <rect x="9" y="4" width="1" height="1" fill="#1a1a2e" />
-
-        {/* Body / Shirt */}
-        <rect x="4" y="7" width="8" height="5" fill={agent.shirtColor} rx="1" />
-        <rect x="3" y="7" width="2" height="4" fill={agent.shirtColor} rx="0.5" />
-        <rect x="11" y="7" width="2" height="4" fill={agent.shirtColor} rx="0.5" />
-
-        {/* Hands */}
-        <rect x="3" y="10" width="2" height="1" fill={agent.skinColor} rx="0.5" />
-        <rect x="11" y="10" width="2" height="1" fill={agent.skinColor} rx="0.5" />
-
-        {/* Legs */}
-        <rect x="5" y="12" width="2" height="3" fill="#374151" />
-        <rect x="9" y="12" width="2" height="3" fill="#374151" />
-
-        {/* Shoes */}
-        <rect x="4" y="14" width="3" height="1" fill="#1e293b" rx="0.5" />
-        <rect x="9" y="14" width="3" height="1" fill="#1e293b" rx="0.5" />
-      </svg>
+      <div className={animClass}>
+        <PixelAvatar name={agent.name} size={spriteSize} />
+      </div>
 
       {/* Status indicator */}
       <div
@@ -1126,8 +1089,6 @@ export default function OfficePage() {
 
     setAgents((prev) =>
       prev.map((agent) => {
-        if (agent.status === "offline") return agent;
-
         const isOnTask = agent.status === "online" || agent.status === "busy";
 
         // ── WORKING: Agent has a task → sit at desk ──

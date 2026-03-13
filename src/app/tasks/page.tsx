@@ -156,12 +156,40 @@ export default function TasksPage() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<ColumnId | null>(null);
   const [filterAssignee, setFilterAssignee] = useState<string | null>(null);
+  const [showNewTask, setShowNewTask] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newPriority, setNewPriority] = useState<"low" | "medium" | "high" | "critical">("medium");
+  const [newAssignee, setNewAssignee] = useState("");
+  const [newProject, setNewProject] = useState("");
   const dragLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const allAssignees = useMemo(
     () => Array.from(new Set(tasks.map((t) => t.assignee).filter(Boolean) as string[])),
     [tasks]
   );
+
+  const availableAgents = useMemo(
+    () => store.agents.map((a) => ({
+      name: a.name,
+      busy: (a.status === "busy" || a.status === "online") && !!a.currentTask,
+      status: a.status,
+    })),
+    [store.agents]
+  );
+
+  const handleCreateTask = () => {
+    if (!newTitle.trim()) return;
+    const assignee = newAssignee || undefined;
+    const status = assignee ? "in_progress" as const : "backlog" as const;
+    store.createTask(newTitle.trim(), newDesc.trim() || undefined, newPriority, status, assignee, newProject.trim() || undefined);
+    setNewTitle("");
+    setNewDesc("");
+    setNewPriority("medium");
+    setNewAssignee("");
+    setNewProject("");
+    setShowNewTask(false);
+  };
 
   // ── KPIs ─────────────────────────────────────────────────────────────────
   const thisWeek = getThisWeekCount(tasks);
@@ -249,7 +277,8 @@ export default function TasksPage() {
         {/* Action bar */}
         <div className="flex items-center gap-3 mb-5 flex-wrap">
           <button
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[13px] font-medium text-white transition-colors"
+            onClick={() => setShowNewTask(true)}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[13px] font-medium text-white transition-colors hover:brightness-110"
             style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
           >
             <span className="text-base leading-none">+</span>
@@ -304,7 +333,10 @@ export default function TasksPage() {
                     </span>
                     <span className="text-[12px] text-[var(--text-muted)]">{colTasks.length}</span>
                   </div>
-                  <button className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors">
+                  <button
+                    onClick={() => setShowNewTask(true)}
+                    className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+                  >
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                       <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                     </svg>
@@ -381,6 +413,123 @@ export default function TasksPage() {
           })}
         </div>
       </div>
+
+      {/* New Task Modal */}
+      {showNewTask && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+          onClick={() => setShowNewTask(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl p-6 flex flex-col gap-4"
+            style={{ background: "#12131a", border: "1px solid rgba(255,255,255,0.1)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-[16px] font-semibold text-[var(--text-primary)]">New Task</h2>
+
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-medium block mb-1.5">Title</label>
+              <input
+                type="text"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="Task title"
+                autoFocus
+                className="w-full rounded-lg px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                onKeyDown={(e) => e.key === "Enter" && handleCreateTask()}
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-medium block mb-1.5">Description</label>
+              <textarea
+                value={newDesc}
+                onChange={(e) => setNewDesc(e.target.value)}
+                placeholder="Optional details..."
+                rows={2}
+                className="w-full rounded-lg px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none resize-none"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+              />
+            </div>
+
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-medium block mb-1.5">Priority</label>
+                <div className="flex gap-1.5">
+                  {(["low", "medium", "high", "critical"] as const).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setNewPriority(p)}
+                      className="flex-1 py-1.5 rounded-lg text-[11px] font-medium capitalize transition-all"
+                      style={
+                        newPriority === p
+                          ? {
+                              background: p === "critical" ? "rgba(239,68,68,0.15)" : p === "high" ? "rgba(245,158,11,0.15)" : p === "medium" ? "rgba(59,130,246,0.15)" : "rgba(107,114,128,0.15)",
+                              color: p === "critical" ? "#f87171" : p === "high" ? "#fbbf24" : p === "medium" ? "#60a5fa" : "#9ca3af",
+                              border: `1px solid ${p === "critical" ? "rgba(239,68,68,0.3)" : p === "high" ? "rgba(245,158,11,0.3)" : p === "medium" ? "rgba(59,130,246,0.3)" : "rgba(107,114,128,0.3)"}`,
+                            }
+                          : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "var(--text-muted)" }
+                      }
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-medium block mb-1.5">Assign to</label>
+                <select
+                  value={newAssignee}
+                  onChange={(e) => setNewAssignee(e.target.value)}
+                  className="w-full rounded-lg px-3 py-2 text-[13px] text-[var(--text-primary)] outline-none appearance-none cursor-pointer"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                >
+                  <option value="">Unassigned (Backlog)</option>
+                  {availableAgents.map((a) => (
+                    <option key={a.name} value={a.name} disabled={a.busy}>
+                      {a.name}{a.busy ? ` (${a.status})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-medium block mb-1.5">Project</label>
+                <input
+                  type="text"
+                  value={newProject}
+                  onChange={(e) => setNewProject(e.target.value)}
+                  placeholder="e.g. Platform"
+                  className="w-full rounded-lg px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-1">
+              <button
+                onClick={() => setShowNewTask(false)}
+                className="flex-1 py-2.5 rounded-lg text-[13px] font-medium transition-all text-[var(--text-secondary)] hover:bg-white/5"
+                style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateTask}
+                disabled={!newTitle.trim()}
+                className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:brightness-110"
+                style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
+              >
+                Create Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

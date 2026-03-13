@@ -13,6 +13,7 @@ interface Store {
   chatMessages: Record<string, ChatMessage[]>;
 
   // Mutations
+  createTask: (title: string, description?: string, priority?: Task["priority"], status?: Task["status"], assignee?: string, project?: string) => void;
   assignTask: (agentId: string, title: string, description?: string, priority?: Task["priority"], project?: string) => void;
   sendMessage: (agentId: string, content: string) => void;
   updateTaskStatus: (taskId: string, status: Task["status"]) => void;
@@ -63,10 +64,56 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const createTask = useCallback(
+    (title: string, description?: string, priority: Task["priority"] = "medium", status: Task["status"] = "backlog", assignee?: string, project?: string) => {
+      const now = new Date().toISOString();
+
+      // If assigning to an agent, verify they are available
+      if (assignee) {
+        const agent = agents.find((a) => a.name === assignee);
+        if (agent && (agent.status === "busy" || agent.status === "online") && agent.currentTask) {
+          // Agent is busy — create as backlog instead
+          const newTask: Task = {
+            id: `t-${Date.now()}`,
+            title, description, status: "backlog", priority, assignee, project, tags: [],
+            createdAt: now, updatedAt: now,
+          };
+          setTasks((prev) => [newTask, ...prev]);
+          addActivity(`Task "${title}" queued for ${assignee} (currently busy)`, "task", "info");
+          return;
+        }
+      }
+
+      const newTask: Task = {
+        id: `t-${Date.now()}`,
+        title, description, status, priority, assignee, project, tags: [],
+        createdAt: now, updatedAt: now,
+      };
+      setTasks((prev) => [newTask, ...prev]);
+
+      // If assigned to an available agent, update their status
+      if (assignee && status === "in_progress") {
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.name === assignee
+              ? { ...a, status: "busy" as const, currentTask: title, lastSeen: now }
+              : a
+          )
+        );
+      }
+
+      addActivity(`Task "${title}" created${assignee ? ` and assigned to ${assignee}` : ""}`, "task", "info");
+    },
+    [agents, addActivity]
+  );
+
   const assignTask = useCallback(
     (agentId: string, title: string, description?: string, priority: Task["priority"] = "medium", project?: string) => {
       const agent = agents.find((a) => a.id === agentId);
       if (!agent) return;
+
+      // Guard: don't assign to busy/working agents
+      if ((agent.status === "busy" || agent.status === "online") && agent.currentTask) return;
 
       const now = new Date().toISOString();
       const taskId = `t-${Date.now()}`;
@@ -213,6 +260,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         tasks,
         activity,
         chatMessages,
+        createTask,
         assignTask,
         sendMessage,
         updateTaskStatus,

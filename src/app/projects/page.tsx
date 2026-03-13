@@ -1,6 +1,7 @@
 "use client";
 
 import { mockProjects } from "@/lib/mock-data";
+import PixelAvatar, { getVisuals } from "@/components/PixelAvatar";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,15 +25,6 @@ const PRIORITY_STYLE: Record<string, { bg: string; text: string }> = {
   high: { bg: "rgba(251,191,36,0.15)", text: "text-amber-400" },
   medium: { bg: "rgba(96,165,250,0.15)", text: "text-blue-400" },
   low: { bg: "rgba(148,163,184,0.15)", text: "text-gray-400" },
-};
-
-const AVATAR_COLORS: Record<string, string> = {
-  Alice: "from-green-500 to-emerald-600",
-  Bob: "from-blue-500 to-indigo-600",
-  Carol: "from-purple-500 to-violet-600",
-  Dave: "from-cyan-500 to-teal-600",
-  Eve: "from-pink-500 to-rose-600",
-  Frank: "from-amber-500 to-orange-600",
 };
 
 // ─── Derived stats ────────────────────────────────────────────────────────────
@@ -80,7 +72,6 @@ export default function ProjectsPage() {
           const statusStyle = STATUS_STYLE[project.status] ?? STATUS_STYLE.active;
           const priority = getProjectPriority(project.progress);
           const priorityStyle = PRIORITY_STYLE[priority];
-          const avatarGradient = AVATAR_COLORS[project.owner] ?? "from-gray-500 to-gray-600";
           const progressColor =
             project.progress >= 70
               ? "#22c55e"
@@ -135,9 +126,15 @@ export default function ProjectsPage() {
               <div className="flex items-center justify-between mt-auto pt-1">
                 <div className="flex items-center gap-2">
                   <div
-                    className={`w-6 h-6 rounded-full bg-gradient-to-br ${avatarGradient} flex items-center justify-center text-white text-[10px] font-bold`}
+                    className="rounded-md flex items-center justify-center"
+                    style={{
+                      width: 26,
+                      height: 26,
+                      background: `${getVisuals(project.owner).color}15`,
+                      border: `1px solid ${getVisuals(project.owner).color}25`,
+                    }}
                   >
-                    {project.owner.charAt(0)}
+                    <PixelAvatar name={project.owner} size={20} />
                   </div>
                   <span className="text-[12px] text-[var(--text-secondary)]">{project.owner}</span>
                 </div>

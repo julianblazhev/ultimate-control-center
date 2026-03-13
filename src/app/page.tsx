@@ -1,6 +1,10 @@
 "use client";
 
-import { mockGateway, mockSessions, mockAgents, mockTasks, mockActivity } from "@/lib/mock-data";
+import { useState } from "react";
+import { useStore } from "@/lib/store";
+import { mockGateway, mockSessions } from "@/lib/mock-data";
+import PixelAvatar, { getVisuals } from "@/components/PixelAvatar";
+import AgentPanel from "@/components/AgentPanel";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,262 +28,309 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diffH / 24)}d ago`;
 }
 
-function modelShort(model: string): string {
-  if (model.includes("opus")) return "Opus";
-  if (model.includes("sonnet")) return "Sonnet";
-  if (model.includes("haiku")) return "Haiku";
-  return model.split("-")[0];
-}
+// ── constants ────────────────────────────────────────────────────────────────
 
-// ── activity icons ───────────────────────────────────────────────────────────
-
-const ACTIVITY_ICONS: Record<string, { icon: string; color: string }> = {
-  session: { icon: "\u2B21", color: "text-blue-400" },
-  task:    { icon: "\u25C8", color: "text-amber-400" },
-  agent:   { icon: "\u25CE", color: "text-green-400" },
-  system:  { icon: "\u2B1F", color: "text-cyan-400" },
-  cron:    { icon: "\u25F7", color: "text-purple-400" },
+const PRIORITY_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
+  critical: { bg: "rgba(239,68,68,0.12)", text: "#f87171", dot: "#ef4444" },
+  high:     { bg: "rgba(245,158,11,0.12)", text: "#fbbf24", dot: "#f59e0b" },
+  medium:   { bg: "rgba(59,130,246,0.12)", text: "#60a5fa", dot: "#3b82f6" },
+  low:      { bg: "rgba(107,114,128,0.12)", text: "#9ca3af", dot: "#6b7280" },
 };
 
-const SEVERITY_DOT: Record<string, string> = {
-  success: "bg-green-400",
-  warning: "bg-amber-400",
-  error:   "bg-red-400",
-  info:    "bg-blue-400/50",
+const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  in_progress: { bg: "rgba(59,130,246,0.12)", text: "#60a5fa" },
+  review:      { bg: "rgba(168,85,247,0.12)", text: "#c084fc" },
+  backlog:     { bg: "rgba(107,114,128,0.12)", text: "#9ca3af" },
+  done:        { bg: "rgba(34,197,94,0.12)", text: "#4ade80" },
 };
 
-// ── priority dot colors ──────────────────────────────────────────────────────
-
-const PRIORITY_DOT: Record<string, string> = {
-  critical: "bg-red-500",
-  high:     "bg-amber-500",
-  medium:   "bg-blue-400",
-  low:      "bg-gray-400",
-};
-
-// ── derived data ─────────────────────────────────────────────────────────────
-
-const activeSessions = mockSessions.filter((s) => s.status === "active").length;
-const activeAgents = mockAgents.filter((a) => a.status === "online" || a.status === "busy").length;
-const gatewayUptime = formatUptime(mockGateway.uptime);
-
-const recentTasks = [...mockTasks]
-  .filter((t) => t.status !== "done")
-  .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-  .slice(0, 6);
-
-// ── card style constant ──────────────────────────────────────────────────────
-
-const cardStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.03)",
-  border: "1px solid rgba(255,255,255,0.06)",
-  borderRadius: "12px",
-};
-
-const rowStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.03)",
-  border: "1px solid rgba(255,255,255,0.06)",
-  borderRadius: "8px",
+const SEVERITY_COLORS: Record<string, string> = {
+  success: "#4ade80",
+  warning: "#fbbf24",
+  error:   "#f87171",
+  info:    "#60a5fa",
 };
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export default function OverviewPage() {
+  const store = useStore();
+  const [panelAgentId, setPanelAgentId] = useState<string | null>(null);
+  const panelAgent = panelAgentId ? store.agents.find((a) => a.id === panelAgentId) ?? null : null;
+
+  const onlineCount = store.agents.filter((a) => a.status === "online" || a.status === "busy").length;
+  const busyCount = store.agents.filter((a) => (a.status === "online" || a.status === "busy") && a.currentTask).length;
+  const idleCount = store.agents.filter((a) => a.status === "idle" || a.status === "offline").length;
+
+  const tasksByStatus = {
+    in_progress: store.tasks.filter((t) => t.status === "in_progress"),
+    review: store.tasks.filter((t) => t.status === "review"),
+    backlog: store.tasks.filter((t) => t.status === "backlog"),
+    done: store.tasks.filter((t) => t.status === "done"),
+  };
+
+  const activeTasks = [...tasksByStatus.in_progress, ...tasksByStatus.review]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
   return (
     <div
       className="min-h-[calc(100vh-56px)]"
       style={{ marginLeft: "-24px", marginRight: "-24px", marginTop: "-24px", marginBottom: "-24px", padding: "24px" }}
     >
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div
-          className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: "rgba(99,102,241,0.15)" }}
-        >
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="text-indigo-400">
-            <rect x="2" y="2" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-            <rect x="10" y="2" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-            <rect x="2" y="10" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-            <rect x="10" y="10" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-          </svg>
-        </div>
-        <div className="flex-1 min-w-0">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
           <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">
             Mission Overview
           </h1>
           <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
-            {activeSessions} active sessions
-            <span className="mx-1.5 opacity-40">&middot;</span>
-            {activeAgents} agents online
-            <span className="mx-1.5 opacity-40">&middot;</span>
-            {mockGateway.memoryUsage}% memory
-            <span className="mx-1.5 opacity-40">&middot;</span>
-            up {gatewayUptime}
+            Real-time status of your AI workforce
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+          <span className="text-[11px] text-green-400 font-medium">
+            Gateway v{mockGateway.version} &middot; up {formatUptime(mockGateway.uptime)}
+          </span>
         </div>
       </div>
 
-      {/* Two-column layout */}
+      {/* ── Stat Cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        {[
+          { label: "Agents Working", value: busyCount, sub: `of ${store.agents.length}`, color: "#f59e0b", icon: "⚡" },
+          { label: "Available", value: idleCount, sub: "ready to assign", color: "#22c55e", icon: "✦" },
+          { label: "Active Tasks", value: tasksByStatus.in_progress.length + tasksByStatus.review.length, sub: `${tasksByStatus.backlog.length} in backlog`, color: "#818cf8", icon: "◈" },
+          { label: "Completed", value: tasksByStatus.done.length, sub: `of ${store.tasks.length} total`, color: "#4ade80", icon: "✓" },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className="rounded-xl p-4 transition-all hover:brightness-110"
+            style={{
+              background: `linear-gradient(135deg, ${stat.color}08, ${stat.color}03)`,
+              border: `1px solid ${stat.color}18`,
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[14px]" style={{ color: stat.color }}>{stat.icon}</span>
+              <span className="text-[11px] text-[var(--text-muted)] uppercase tracking-wider font-medium">{stat.label}</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[28px] font-bold" style={{ color: stat.color }}>{stat.value}</span>
+              <span className="text-[11px] text-[var(--text-muted)]">{stat.sub}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Team Pulse — All Agents ── */}
+      <div
+        className="rounded-xl p-4 mb-6"
+        style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-[13px] font-semibold text-[var(--text-primary)]">Team Pulse</h2>
+          <span className="text-[11px] text-[var(--text-muted)]">
+            {onlineCount} online &middot; {idleCount} available
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {store.agents.map((agent) => {
+            const v = getVisuals(agent.name);
+            const isWorking = (agent.status === "online" || agent.status === "busy") && !!agent.currentTask;
+            const statusColor = agent.status === "online" ? "#22c55e" : agent.status === "busy" ? "#f59e0b" : agent.status === "idle" ? "#3b82f6" : "#6b7280";
+
+            return (
+              <button
+                key={agent.id}
+                onClick={() => setPanelAgentId(agent.id)}
+                className="rounded-lg p-3 text-left transition-all hover:brightness-125 group"
+                style={{
+                  background: isWorking ? `${v.color}08` : "rgba(255,255,255,0.02)",
+                  border: `1px solid ${isWorking ? `${v.color}20` : "rgba(255,255,255,0.05)"}`,
+                }}
+              >
+                <div className="flex items-center gap-2.5 mb-2">
+                  <div className="relative flex-shrink-0">
+                    <div
+                      className="rounded-md flex items-center justify-center group-hover:scale-110 transition-transform"
+                      style={{
+                        width: 36,
+                        height: 36,
+                        background: `${v.color}12`,
+                      }}
+                    >
+                      <PixelAvatar name={agent.name} size={28} />
+                    </div>
+                    {/* Status dot */}
+                    <div
+                      className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
+                      style={{
+                        background: statusColor,
+                        borderColor: "#0f1015",
+                        boxShadow: isWorking ? `0 0 6px ${statusColor}` : "none",
+                      }}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[12px] font-semibold text-[var(--text-primary)]">{agent.name}</span>
+                      <span className="text-[11px]">{v.emoji}</span>
+                    </div>
+                    <p className="text-[10px] text-[var(--text-muted)] truncate">{agent.role}</p>
+                  </div>
+                </div>
+
+                {isWorking ? (
+                  <div
+                    className="rounded-md px-2 py-1.5"
+                    style={{ background: `${v.color}08`, border: `1px solid ${v.color}12` }}
+                  >
+                    <p className="text-[10px] text-[var(--text-secondary)] truncate leading-snug">
+                      {agent.currentTask}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-md px-2 py-1.5" style={{ background: "rgba(255,255,255,0.02)" }}>
+                    <p className="text-[10px] text-[var(--text-muted)] italic">Available</p>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Two-column: Active Work + Activity ── */}
       <div className="flex flex-col lg:flex-row gap-5">
 
-        {/* Left column ~60% */}
-        <div className="flex flex-col gap-5 lg:w-[60%]">
-
-          {/* Active Sessions */}
-          <div className="p-4" style={cardStyle}>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[14px] font-semibold text-[var(--text-primary)]">
-                Active Sessions
-              </h2>
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {mockSessions.length} total
-              </span>
+        {/* Left: Active Work */}
+        <div className="lg:w-[60%]">
+          <div
+            className="rounded-xl p-4 h-full"
+            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[13px] font-semibold text-[var(--text-primary)]">Active Work</h2>
+              <div className="flex gap-2">
+                {(["in_progress", "review", "backlog"] as const).map((s) => {
+                  const sc = STATUS_COLORS[s];
+                  const count = tasksByStatus[s].length;
+                  return (
+                    <span
+                      key={s}
+                      className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+                      style={{ background: sc.bg, color: sc.text }}
+                    >
+                      {count} {s.replace("_", " ")}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="space-y-2">
-              {mockSessions.map((session) => {
-                const statusColor =
-                  session.status === "active" ? "bg-green-400" :
-                  session.status === "idle" ? "bg-amber-400" : "bg-gray-400";
+              {activeTasks.length === 0 && (
+                <p className="text-[12px] text-[var(--text-muted)] italic py-4 text-center">No active tasks</p>
+              )}
+              {activeTasks.map((task) => {
+                const pc = PRIORITY_COLORS[task.priority] ?? PRIORITY_COLORS.medium;
+                const sc = STATUS_COLORS[task.status] ?? STATUS_COLORS.backlog;
+                const assignedAgent = task.assignee ? store.agents.find((a) => a.name === task.assignee) : null;
+                const av = assignedAgent ? getVisuals(assignedAgent.name) : null;
 
                 return (
                   <div
-                    key={session.id}
-                    className="flex items-center gap-3 px-3 py-2.5 transition-all hover:brightness-110"
-                    style={rowStyle}
+                    key={task.id}
+                    className="rounded-lg px-3.5 py-3 transition-all hover:brightness-110"
+                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
                   >
-                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[13px] font-medium text-[var(--text-primary)] truncate">
-                          {session.name}
-                        </span>
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded font-mono flex-shrink-0"
-                          style={{ background: "rgba(99,102,241,0.12)", color: "#818cf8" }}
-                        >
-                          {modelShort(session.model)}
-                        </span>
+                    <div className="flex items-start gap-3">
+                      {/* Priority indicator */}
+                      <div className="flex-shrink-0 mt-1">
+                        <div className="w-2 h-2 rounded-full" style={{ background: pc.dot }} />
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-[12px] font-medium tabular-nums text-[var(--text-secondary)]">
-                        {session.messageCount}
-                        <span className="text-[10px] text-[var(--text-muted)] ml-0.5">msgs</span>
-                      </span>
-                      <span className="text-[10px] text-[var(--text-muted)]">
-                        {relativeTime(session.lastActivity)}
-                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[13px] font-medium text-[var(--text-primary)] truncate">
+                            {task.title}
+                          </span>
+                          <span
+                            className="text-[9px] font-medium px-1.5 py-0.5 rounded capitalize flex-shrink-0"
+                            style={{ background: sc.bg, color: sc.text }}
+                          >
+                            {task.status.replace("_", " ")}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {assignedAgent && av && (
+                            <button
+                              onClick={() => setPanelAgentId(assignedAgent.id)}
+                              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                            >
+                              <div
+                                className="rounded flex items-center justify-center"
+                                style={{ width: 18, height: 18, background: `${av.color}15` }}
+                              >
+                                <PixelAvatar name={assignedAgent.name} size={14} />
+                              </div>
+                              <span className="text-[11px]" style={{ color: av.color }}>{assignedAgent.name}</span>
+                            </button>
+                          )}
+                          {task.project && (
+                            <span
+                              className="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                              style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-muted)" }}
+                            >
+                              {task.project}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-[var(--text-muted)] ml-auto flex-shrink-0">
+                            {relativeTime(task.updatedAt)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
-
-          {/* Recent Tasks */}
-          <div className="p-4" style={cardStyle}>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[14px] font-semibold text-[var(--text-primary)]">
-                Recent Tasks
-              </h2>
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {recentTasks.length} pending
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {recentTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-3 px-3 py-2.5 transition-all hover:brightness-110"
-                  style={rowStyle}
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOT[task.priority] ?? "bg-gray-400"}`}
-                  />
-
-                  <div className="flex-1 min-w-0">
-                    <span className="text-[13px] font-medium text-[var(--text-primary)] truncate block">
-                      {task.title}
-                    </span>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {task.assignee && (
-                        <span className="text-[11px] text-[var(--text-muted)]">
-                          {task.assignee}
-                        </span>
-                      )}
-                      {task.assignee && task.project && (
-                        <span className="text-[var(--text-muted)] opacity-40">&middot;</span>
-                      )}
-                      {task.project && (
-                        <span
-                          className="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
-                          style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)" }}
-                        >
-                          {task.project}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0">
-                    {relativeTime(task.updatedAt)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
-        {/* Right column ~40% */}
-        <div className="flex flex-col gap-5 lg:w-[40%]">
+        {/* Right: Activity + System */}
+        <div className="lg:w-[40%] flex flex-col gap-5">
 
-          {/* Gateway Health */}
-          <div className="p-4" style={cardStyle}>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[14px] font-semibold text-[var(--text-primary)]">
-                Gateway Health
-              </h2>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                <span className="text-[11px] text-green-400 font-medium">Online</span>
-              </div>
-            </div>
-
-            {/* Status row */}
-            <div
-              className="flex items-center gap-3 px-3 py-2.5 mb-3"
-              style={rowStyle}
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-[var(--text-primary)]">
-                  OpenClaw Gateway
-                </p>
-                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                  v{mockGateway.version}
-                  <span className="mx-1.5 opacity-40">&middot;</span>
-                  up {gatewayUptime}
-                </p>
-              </div>
-            </div>
-
-            {/* Stat grid */}
+          {/* System Status */}
+          <div
+            className="rounded-xl p-4"
+            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            <h2 className="text-[13px] font-semibold text-[var(--text-primary)] mb-3">System</h2>
             <div className="grid grid-cols-3 gap-2 mb-3">
               {[
-                { label: "Active", value: mockGateway.activeSessions },
-                { label: "Total", value: mockGateway.totalSessions },
+                { label: "Sessions", value: mockSessions.filter((s) => s.status === "active").length, total: mockSessions.length },
+                { label: "Memory", value: `${mockGateway.memoryUsage}%`, color: (mockGateway.memoryUsage ?? 0) > 80 ? "#f87171" : (mockGateway.memoryUsage ?? 0) > 60 ? "#fbbf24" : "#4ade80" },
                 { label: "Cron Jobs", value: mockGateway.cronJobs },
-              ].map((stat) => (
+              ].map((s) => (
                 <div
-                  key={stat.label}
-                  className="px-2.5 py-2 text-center"
-                  style={rowStyle}
+                  key={s.label}
+                  className="rounded-lg px-3 py-2 text-center"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
                 >
-                  <p className="text-[16px] font-bold text-[var(--text-primary)]">{stat.value}</p>
-                  <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{stat.label}</p>
+                  <p
+                    className="text-[16px] font-bold"
+                    style={{ color: 'color' in s && s.color ? s.color : "var(--text-primary)" }}
+                  >
+                    {s.value}
+                    {'total' in s && s.total !== undefined && (
+                      <span className="text-[11px] text-[var(--text-muted)] font-normal">/{s.total}</span>
+                    )}
+                  </p>
+                  <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{s.label}</p>
                 </div>
               ))}
             </div>
@@ -287,33 +338,18 @@ export default function OverviewPage() {
             {/* Memory bar */}
             {mockGateway.memoryUsage !== undefined && (
               <div>
-                <div className="flex justify-between text-[11px] mb-1.5">
-                  <span className="text-[var(--text-muted)]">Memory Usage</span>
-                  <span
-                    style={{
-                      color: mockGateway.memoryUsage > 80
-                        ? "#f87171"
-                        : mockGateway.memoryUsage > 60
-                        ? "#fbbf24"
-                        : "#4ade80",
-                    }}
-                  >
+                <div className="flex justify-between text-[11px] mb-1">
+                  <span className="text-[var(--text-muted)]">Memory</span>
+                  <span style={{ color: mockGateway.memoryUsage > 80 ? "#f87171" : mockGateway.memoryUsage > 60 ? "#fbbf24" : "#4ade80" }}>
                     {mockGateway.memoryUsage}%
                   </span>
                 </div>
-                <div
-                  className="w-full rounded-full h-1.5"
-                  style={{ background: "rgba(255,255,255,0.06)" }}
-                >
+                <div className="w-full rounded-full h-1" style={{ background: "rgba(255,255,255,0.06)" }}>
                   <div
-                    className="h-1.5 rounded-full transition-all"
+                    className="h-1 rounded-full transition-all"
                     style={{
                       width: `${mockGateway.memoryUsage}%`,
-                      background: mockGateway.memoryUsage > 80
-                        ? "#f87171"
-                        : mockGateway.memoryUsage > 60
-                        ? "#fbbf24"
-                        : "#4ade80",
+                      background: mockGateway.memoryUsage > 80 ? "#f87171" : mockGateway.memoryUsage > 60 ? "#fbbf24" : "#4ade80",
                     }}
                   />
                 </div>
@@ -321,57 +357,49 @@ export default function OverviewPage() {
             )}
           </div>
 
-          {/* Activity Stream */}
-          <div className="p-4 flex-1" style={cardStyle}>
+          {/* Activity Feed */}
+          <div
+            className="rounded-xl p-4 flex-1"
+            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
+          >
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[14px] font-semibold text-[var(--text-primary)]">
-                Activity Stream
-              </h2>
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {mockActivity.length} events
-              </span>
+              <h2 className="text-[13px] font-semibold text-[var(--text-primary)]">Activity</h2>
+              <span className="text-[11px] text-[var(--text-muted)]">{store.activity.length} events</span>
             </div>
 
-            <div className="space-y-1.5">
-              {mockActivity.map((event) => {
-                const ai = ACTIVITY_ICONS[event.type] ?? ACTIVITY_ICONS.system;
-                const dotCls = SEVERITY_DOT[event.severity ?? "info"] ?? SEVERITY_DOT.info;
+            <div className="space-y-1">
+              {store.activity.slice(0, 10).map((event) => {
+                const sevColor = SEVERITY_COLORS[event.severity ?? "info"] ?? SEVERITY_COLORS.info;
 
                 return (
                   <div
                     key={event.id}
-                    className="flex gap-2.5 px-2.5 py-2 transition-all hover:brightness-110"
-                    style={rowStyle}
+                    className="flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-all hover:brightness-110"
+                    style={{ background: "rgba(255,255,255,0.02)" }}
                   >
-                    <span className={`text-[14px] leading-none mt-px flex-shrink-0 ${ai.color}`} aria-hidden="true">
-                      {ai.icon}
-                    </span>
-
+                    <div className="flex-shrink-0 mt-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: sevColor }} />
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[12px] leading-snug text-[var(--text-secondary)]">
+                      <p className="text-[11px] leading-snug text-[var(--text-secondary)]">
                         {event.message}
                       </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-[var(--text-muted)]">
-                          {relativeTime(event.timestamp)}
-                        </span>
-                        <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] opacity-60">
-                          {event.type}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex-shrink-0 mt-1.5">
-                      <span className={`inline-block w-1.5 h-1.5 rounded-full ${dotCls}`} />
+                      <span className="text-[10px] text-[var(--text-muted)]">
+                        {relativeTime(event.timestamp)}
+                      </span>
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
-
         </div>
       </div>
+
+      {/* Agent Panel */}
+      {panelAgent && (
+        <AgentPanel agent={panelAgent} onClose={() => setPanelAgentId(null)} />
+      )}
     </div>
   );
 }
