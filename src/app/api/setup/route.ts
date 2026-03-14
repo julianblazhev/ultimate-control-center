@@ -59,7 +59,8 @@ async function detectGateway(bin: string): Promise<GatewayDetection> {
       timeout: 5000,
     });
     const data = JSON.parse(stdout);
-    const isRunning = data.runtime?.status === "running" || data.runtime?.state === "active";
+    const rt = data.service?.runtime || data.runtime;
+    const isRunning = rt?.status === "running" || rt?.state === "active";
     const rpcUrl = data.rpc?.url || data.gateway?.probeUrl || null;
     const port = data.gateway?.port || null;
     return { running: isRunning, rpcUrl, port };
