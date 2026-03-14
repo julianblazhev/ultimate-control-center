@@ -6,11 +6,13 @@
 import { NextResponse } from "next/server";
 import { mockCronJobs } from "@/lib/mock-data";
 import { openclawExec } from "@/lib/gateway";
+import { transformCronJobs } from "@/lib/transformers";
 import type { CronJob, ApiResponse } from "@/lib/types";
 
 export async function GET(): Promise<NextResponse<ApiResponse<CronJob[]>>> {
   try {
-    const data = await openclawExec<CronJob[]>(["cron", "list"]);
+    const raw = await openclawExec<unknown>(["cron", "list"]);
+    const data = transformCronJobs(raw as Parameters<typeof transformCronJobs>[0]);
     return NextResponse.json({ data, timestamp: new Date().toISOString() });
   } catch {
     return NextResponse.json({

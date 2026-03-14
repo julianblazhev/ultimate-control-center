@@ -57,7 +57,7 @@ export async function POST(
 
       case "list_sessions": {
         try {
-          const data = await openclawExec(["sessions", "list"]);
+          const data = await openclawExec(["sessions"]);
           return NextResponse.json({ success: true, message: "Sessions retrieved", data });
         } catch {
           return NextResponse.json({ success: true, message: `Returned ${mockSessions.length} sessions (cached)`, data: mockSessions });
