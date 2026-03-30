@@ -1,10 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
 // API Route — GET /api/snapshot
 // Aggregates all gateway data into a single response for the UI.
+// RPC-first with CLI fallback per data source.
 // ═══════════════════════════════════════════════════════════════
 
 import { NextResponse } from "next/server";
-import { openclawExec } from "@/lib/gateway";
+import "@/lib/openclaw/init"; // Ensure gateway event bridge is active
+import { gatewayCall } from "@/lib/gateway";
 import { transformAgents, transformCronJobs, transformGatewayStatus, transformSessions } from "@/lib/transformers";
 import type { Agent, Session, CronJob, GatewayStatus } from "@/lib/types";
 
@@ -21,11 +23,11 @@ export async function GET(): Promise<NextResponse<{ data: Snapshot; timestamp: s
 
   // Fetch all data sources in parallel — each one independent
   const [agentsResult, sessionsResult, cronResult, gatewayResult, statusResult] = await Promise.allSettled([
-    openclawExec<unknown[]>(["agents", "list"]),
-    openclawExec<unknown>(["sessions"]),
-    openclawExec<unknown>(["cron", "list"]),
-    openclawExec<unknown>(["gateway", "status"]),
-    openclawExec<unknown>(["status"]),
+    gatewayCall<unknown[]>("agents.list"),
+    gatewayCall<unknown>("sessions.list"),
+    gatewayCall<unknown>("cron.list"),
+    gatewayCall<unknown>("health"),
+    gatewayCall<unknown>("status"),
   ]);
 
   // Agents

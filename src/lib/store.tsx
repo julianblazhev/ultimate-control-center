@@ -88,6 +88,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
+  // Auto-poll every 30 seconds for fresh data
+  useEffect(() => {
+    const interval = setInterval(() => { refresh(); }, 30_000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
   // ── Mutations (local state only — these don't exist in gateway CLI) ──
 
   const addActivity = useCallback(
@@ -174,20 +180,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const agent = agents.find((a) => a.id === agentId);
 
       const userMsg: ChatMessage = { id: `cm-${Date.now()}`, agentId, role: "user", content, timestamp: now };
-      const replies = [
-        "Understood. I'll look into that.",
-        "On it. I'll have an update for you shortly.",
-        "Good question. Let me check and get back to you.",
-        "Noted. I'll factor that into my current work.",
-        "Thanks for the heads up. Adjusting my approach accordingly.",
-      ];
-      const agentMsg: ChatMessage = {
-        id: `cm-${Date.now() + 1}`, agentId, role: "agent",
-        content: replies[Math.floor(Math.random() * replies.length)],
-        timestamp: new Date(Date.now() + 1500).toISOString(),
-      };
+      setChatMessages((prev) => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), userMsg] }));
 
-      setChatMessages((prev) => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), userMsg, agentMsg] }));
+      // Send via gateway RPC
+      const sessionKey = agent?.sessionId || `agent:${agentId}`;
+      fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionKey, message: content }),
+      })
+        .then((res) => res.json())
+        .then((result) => {
+          if (!result.success) {
+            // Fallback: show a local placeholder reply
+            const fallbackMsg: ChatMessage = {
+              id: `cm-${Date.now() + 1}`, agentId, role: "agent",
+              content: "(Gateway unavailable — message queued locally)",
+              timestamp: new Date().toISOString(),
+            };
+            setChatMessages((prev) => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), fallbackMsg] }));
+          }
+        })
+        .catch(() => {
+          // Offline fallback
+          const fallbackMsg: ChatMessage = {
+            id: `cm-${Date.now() + 1}`, agentId, role: "agent",
+            content: "(Gateway unavailable — message queued locally)",
+            timestamp: new Date().toISOString(),
+          };
+          setChatMessages((prev) => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), fallbackMsg] }));
+        });
+
       if (agent) addActivity(`Message sent to ${agent.name}`, "agent", "info");
     },
     [agents, addActivity]

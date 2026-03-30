@@ -34,7 +34,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/setup", request.url));
   }
 
-  // ── Configured: check auth on all non-public routes ─────────
+  // ── Auto-login mode: skip auth entirely ─────────────────────
+  // When AUTO_LOGIN=true, the dashboard trusts the network layer (e.g.
+  // Cloudflare Zero Trust) for authentication and automatically sets
+  // the session cookie so clients never see a login screen.
+  const autoLogin = process.env.AUTO_LOGIN === "true";
+
   if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
@@ -43,6 +48,19 @@ export function middleware(request: NextRequest) {
   const isAuthed = sessionCookie?.value === dashboardSecret;
 
   if (!isAuthed) {
+    if (autoLogin) {
+      // Auto-set the session cookie and let the request through
+      const response = NextResponse.next();
+      response.cookies.set(COOKIE_NAME, dashboardSecret, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+      });
+      return response;
+    }
+
     // API routes get 401, page routes get redirected to login
     if (pathname.startsWith("/api")) {
       return NextResponse.json(

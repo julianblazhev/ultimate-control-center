@@ -1,23 +1,23 @@
 // ═══════════════════════════════════════════════════════════════
 // API Route — GET /api/status
-// CLI: openclaw gateway status --json + openclaw status --json
+// RPC: health + status → fallback CLI
 // ═══════════════════════════════════════════════════════════════
 
 import { NextResponse } from "next/server";
-import { openclawExec } from "@/lib/gateway";
+import { gatewayCall } from "@/lib/gateway";
 import { transformGatewayStatus } from "@/lib/transformers";
 import type { GatewayStatus, ApiResponse } from "@/lib/types";
 
 export async function GET(): Promise<NextResponse<ApiResponse<GatewayStatus>>> {
   try {
     const [gwRaw, statusRaw] = await Promise.all([
-      openclawExec<unknown>(["gateway", "status"]),
-      openclawExec<unknown>(["status"]).catch(() => undefined),
+      gatewayCall<unknown>("health"),
+      gatewayCall<unknown>("status").catch(() => undefined),
     ]);
 
     let cronCount = 0;
     try {
-      const cronRaw = await openclawExec<{ jobs?: unknown[] }>(["cron", "list"]);
+      const cronRaw = await gatewayCall<{ jobs?: unknown[] }>("cron.list");
       cronCount = cronRaw.jobs?.length || 0;
     } catch { /* cron count is best-effort */ }
 

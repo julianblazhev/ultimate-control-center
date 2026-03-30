@@ -1,16 +1,16 @@
 // ═══════════════════════════════════════════════════════════════
 // API Route — GET /api/sessions
-// CLI: openclaw sessions --json (no "list" subcommand)
+// RPC: sessions.list → fallback CLI: openclaw sessions --json
 // ═══════════════════════════════════════════════════════════════
 
 import { NextResponse } from "next/server";
-import { openclawExec } from "@/lib/gateway";
+import { gatewayCall } from "@/lib/gateway";
 import { transformSessions } from "@/lib/transformers";
 import type { Session, ApiResponse } from "@/lib/types";
 
 export async function GET(): Promise<NextResponse<ApiResponse<Session[]>>> {
   try {
-    const raw = await openclawExec<unknown>(["sessions"]);
+    const raw = await gatewayCall<unknown>("sessions.list");
     const data = transformSessions(raw as Parameters<typeof transformSessions>[0]);
     return NextResponse.json({ data, timestamp: new Date().toISOString() });
   } catch (err) {

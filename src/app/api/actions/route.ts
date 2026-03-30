@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
 // API Route — POST /api/actions
-// Executes named actions against the OpenClaw gateway
+// Executes named actions against the OpenClaw gateway via RPC
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
-import { openclawExec } from "@/lib/gateway";
+import { gatewayCall } from "@/lib/gateway";
 import type { ActionResult } from "@/lib/types";
 
 interface ActionRequestBody {
@@ -46,17 +46,17 @@ export async function POST(
 
     switch (action as AllowedAction) {
       case "refresh_status": {
-        const data = await openclawExec(["status"]);
+        const data = await gatewayCall("status");
         return NextResponse.json({ success: true, message: "Gateway status refreshed", data });
       }
 
       case "list_sessions": {
-        const data = await openclawExec(["sessions"]);
+        const data = await gatewayCall("sessions.list");
         return NextResponse.json({ success: true, message: "Sessions retrieved", data });
       }
 
       case "list_cron": {
-        const data = await openclawExec(["cron", "list"]);
+        const data = await gatewayCall("cron.list");
         return NextResponse.json({ success: true, message: "Cron jobs retrieved", data });
       }
 
@@ -68,7 +68,7 @@ export async function POST(
           );
         }
 
-        await openclawExec(["gateway", "restart"]);
+        await gatewayCall("config.apply", { restart: true });
         return NextResponse.json({
           success: true,
           message: "Gateway restart initiated",
