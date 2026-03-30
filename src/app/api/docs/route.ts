@@ -4,7 +4,6 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
-import { mockDocs } from "@/lib/mock-data";
 import { openclawExec } from "@/lib/gateway";
 import type { DocEntry, ApiResponse } from "@/lib/types";
 
@@ -25,35 +24,16 @@ export async function GET(
         );
       }
 
-      try {
-        const data = await openclawExec<DocEntry>(["docs", "read", id]);
-        return NextResponse.json({ data, timestamp: new Date().toISOString() });
-      } catch {
-        const doc = mockDocs.find((d) => d.id === id);
-        if (!doc) {
-          return NextResponse.json(
-            { data: [] as DocEntry[], error: "Document not found", timestamp: new Date().toISOString() },
-            { status: 404 }
-          );
-        }
-        return NextResponse.json({
-          data: { ...doc, content: doc.content ?? `[Content for ${doc.name}]` },
-          timestamp: new Date().toISOString(),
-        });
-      }
+      const data = await openclawExec<DocEntry>(["docs", "read", id]);
+      return NextResponse.json({ data, timestamp: new Date().toISOString() });
     }
 
-    try {
-      const data = await openclawExec<DocEntry[]>(["docs", "list"]);
-      return NextResponse.json({ data, timestamp: new Date().toISOString() });
-    } catch {
-      const data: DocEntry[] = mockDocs.map(({ content: _content, ...rest }) => rest);
-      return NextResponse.json({ data, timestamp: new Date().toISOString() });
-    }
-  } catch {
+    const data = await openclawExec<DocEntry[]>(["docs", "list"]);
+    return NextResponse.json({ data, timestamp: new Date().toISOString() });
+  } catch (err) {
     return NextResponse.json(
-      { data: [] as DocEntry[], error: "Failed to fetch docs", timestamp: new Date().toISOString() },
-      { status: 500 }
+      { data: [], error: `Gateway error: ${err instanceof Error ? err.message : "unknown"}`, timestamp: new Date().toISOString() },
+      { status: 502 },
     );
   }
 }

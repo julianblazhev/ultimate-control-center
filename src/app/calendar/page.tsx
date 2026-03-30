@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { mockRoutines, mockCronJobs } from "@/lib/mock-data";
+import { useStore } from "@/lib/store";
 import type { Routine } from "@/lib/types";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -132,8 +132,30 @@ type ViewMode = "week" | "today";
 
 export default function CalendarPage() {
   const [view, setView] = useState<ViewMode>("week");
-  const alwaysRunning = mockRoutines.filter((r) => r.type === "always_running");
-  const scheduled = mockRoutines.filter((r) => r.type !== "always_running");
+  const store = useStore();
+
+  // Routines aren't directly available from CLI — derive from cron jobs or show empty
+  const routines: Routine[] = store.cronJobs.map((job) => ({
+    id: job.id,
+    name: job.name,
+    schedule: job.schedule,
+    time: job.schedule.startsWith("*/") ? "continuous" : (() => {
+      const parts = job.schedule.split(" ");
+      if (parts.length >= 2) {
+        const minute = parts[0].padStart(2, "0");
+        const hour = parts[1] === "*" ? "00" : parts[1].padStart(2, "0");
+        return `${hour}:${minute}`;
+      }
+      return "00:00";
+    })(),
+    duration: 10,
+    type: job.schedule.includes("* * *") ? "daily" as const : job.schedule.startsWith("*/") ? "always_running" as const : "weekly" as const,
+    enabled: job.enabled,
+    description: job.command,
+  }));
+
+  const alwaysRunning = routines.filter((r) => r.type === "always_running");
+  const scheduled = routines.filter((r) => r.type !== "always_running");
   const { schedule, today } = buildWeekSchedule(scheduled);
 
   return (
@@ -259,7 +281,7 @@ export default function CalendarPage() {
               Cron Jobs
             </h3>
             <div className="space-y-1.5">
-              {mockCronJobs.map((job) => (
+              {store.cronJobs.map((job) => (
                 <div
                   key={job.id}
                   className="flex items-center justify-between rounded-lg px-3 py-2"

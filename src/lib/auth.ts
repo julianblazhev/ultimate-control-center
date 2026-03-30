@@ -67,6 +67,7 @@ export function setSessionCookie(response: NextResponse): NextResponse {
  * Generate a cryptographically secure random secret.
  */
 export function generateSecret(): string {
-  const { randomBytes } = require("crypto");
-  return randomBytes(32).toString("hex");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const crypto = require("crypto");
+  return crypto.randomBytes(32).toString("hex");
 }

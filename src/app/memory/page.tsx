@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { mockMemory } from "@/lib/mock-data";
+import { useState, useMemo, useEffect } from "react";
 import type { MemoryEntry } from "@/lib/types";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -199,10 +198,20 @@ function renderContent(content: string): React.ReactNode {
 export default function MemoryPage() {
   const [selectedEntry, setSelectedEntry] = useState<MemoryEntry | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [allMemory, setAllMemory] = useState<MemoryEntry[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const longTermEntry = mockMemory.find((e) => e.type === "long_term") ?? null;
+  useEffect(() => {
+    fetch("/api/memory")
+      .then((r) => r.json())
+      .then((res) => setAllMemory(res.data || []))
+      .catch(() => setAllMemory([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const longTermEntry = allMemory.find((e) => e.type === "long_term") ?? null;
   const journalEntries = useMemo(() => {
-    let entries = mockMemory.filter((e) => e.type === "journal");
+    let entries = allMemory.filter((e) => e.type === "journal");
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       entries = entries.filter(
@@ -213,10 +222,10 @@ export default function MemoryPage() {
       );
     }
     return entries.sort((a, b) => b.date.localeCompare(a.date));
-  }, [searchQuery]);
+  }, [searchQuery, allMemory]);
 
   const groupedJournals = useMemo(() => groupJournals(journalEntries), [journalEntries]);
-  const journalCount = mockMemory.filter((e) => e.type === "journal").length;
+  const journalCount = allMemory.filter((e) => e.type === "journal").length;
 
   return (
     <div

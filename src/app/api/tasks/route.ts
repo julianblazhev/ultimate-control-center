@@ -4,12 +4,8 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
-import { mockTasks } from "@/lib/mock-data";
 import { openclawExec } from "@/lib/gateway";
 import type { Task, ApiResponse } from "@/lib/types";
-
-// In-memory fallback store (resets on server restart)
-const taskStore: Task[] = [...mockTasks];
 
 // ── Validation ───────────────────────────────────────────────
 
@@ -30,11 +26,11 @@ export async function GET(): Promise<NextResponse<ApiResponse<Task[]>>> {
   try {
     const data = await openclawExec<Task[]>(["tasks", "list"]);
     return NextResponse.json({ data, timestamp: new Date().toISOString() });
-  } catch {
-    return NextResponse.json({
-      data: taskStore,
-      timestamp: new Date().toISOString(),
-    });
+  } catch (err) {
+    return NextResponse.json(
+      { data: [], error: `Gateway error: ${err instanceof Error ? err.message : "unknown"}`, timestamp: new Date().toISOString() },
+      { status: 502 },
+    );
   }
 }
 
@@ -86,44 +82,16 @@ export async function POST(
         );
       }
 
-      // Try gateway first
-      try {
-        const updated = await openclawExec<Task>(["tasks", "update", id, "--data", JSON.stringify({ title, description, status, priority, assignee, project })]);
-        return NextResponse.json({ data: updated, timestamp: now }, { status: 200 });
-      } catch {
-        // Fallback to local store
-        const index = taskStore.findIndex((t) => t.id === id);
-        if (index === -1) {
-          return NextResponse.json(
-            { data: {} as Task, error: "Task not found", timestamp: now },
-            { status: 404 }
-          );
-        }
-        const updated: Task = { ...taskStore[index], title, description, status, priority, assignee, project, id, updatedAt: now };
-        taskStore[index] = updated;
-        return NextResponse.json({ data: updated, timestamp: now }, { status: 200 });
-      }
+      const updated = await openclawExec<Task>(["tasks", "update", id, "--data", JSON.stringify({ title, description, status, priority, assignee, project })]);
+      return NextResponse.json({ data: updated, timestamp: now }, { status: 200 });
     } else {
-      // Try gateway first
-      try {
-        const created = await openclawExec<Task>(["tasks", "create", "--data", JSON.stringify({ title, description, status, priority, assignee, project })]);
-        return NextResponse.json({ data: created, timestamp: now }, { status: 201 });
-      } catch {
-        // Fallback to local store
-        const newTask: Task = {
-          id: `t-${Date.now()}`,
-          title, description, status, priority, assignee, project,
-          tags: Array.isArray(fields.tags) ? fields.tags.filter((t): t is string => typeof t === "string").slice(0, 20) : [],
-          createdAt: now, updatedAt: now,
-        };
-        taskStore.push(newTask);
-        return NextResponse.json({ data: newTask, timestamp: now }, { status: 201 });
-      }
+      const created = await openclawExec<Task>(["tasks", "create", "--data", JSON.stringify({ title, description, status, priority, assignee, project })]);
+      return NextResponse.json({ data: created, timestamp: now }, { status: 201 });
     }
-  } catch {
+  } catch (err) {
     return NextResponse.json(
-      { data: {} as Task, error: "Failed to process task", timestamp: new Date().toISOString() },
-      { status: 500 }
+      { data: {} as Task, error: `Gateway error: ${err instanceof Error ? err.message : "unknown"}`, timestamp: new Date().toISOString() },
+      { status: 502 }
     );
   }
 }

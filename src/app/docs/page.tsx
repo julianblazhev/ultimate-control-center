@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { mockDocs } from "@/lib/mock-data";
+import { useState, useMemo, useEffect } from "react";
 import type { DocEntry } from "@/lib/types";
 
 // -- Helpers --
@@ -45,23 +44,34 @@ export default function DocsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<string | null>(null);
+  const [allDocs, setAllDocs] = useState<DocEntry[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Extract unique categories and file types
+  useEffect(() => {
+    fetch("/api/docs")
+      .then((r) => r.json())
+      .then((res) => {
+        const data = Array.isArray(res.data) ? res.data : [];
+        setAllDocs(data);
+      })
+      .catch(() => setAllDocs([]))
+      .finally(() => setLoading(false));
+  }, []);
+
   const categories = useMemo(() => {
     const cats = new Set<string>();
-    mockDocs.forEach((d) => { if (d.category) cats.add(d.category); });
+    allDocs.forEach((d) => { if (d.category) cats.add(d.category); });
     return Array.from(cats);
-  }, []);
+  }, [allDocs]);
 
   const fileTypes = useMemo(() => {
     const types = new Set<string>();
-    mockDocs.forEach((d) => types.add(d.type));
+    allDocs.forEach((d) => types.add(d.type));
     return Array.from(types);
-  }, []);
+  }, [allDocs]);
 
-  // Filter documents
   const filtered = useMemo(() => {
-    let docs = mockDocs;
+    let docs = allDocs;
     if (activeCategory) {
       docs = docs.filter((d) => d.category === activeCategory);
     }
@@ -79,9 +89,9 @@ export default function DocsPage() {
       );
     }
     return docs;
-  }, [query, activeCategory, activeType]);
+  }, [query, activeCategory, activeType, allDocs]);
 
-  const selectedDoc = mockDocs.find((d) => d.id === selectedId) ?? null;
+  const selectedDoc = allDocs.find((d) => d.id === selectedId) ?? null;
 
   return (
     <div

@@ -4,7 +4,6 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
-import { mockGateway, mockSessions, mockCronJobs } from "@/lib/mock-data";
 import { openclawExec } from "@/lib/gateway";
 import type { ActionResult } from "@/lib/types";
 
@@ -47,30 +46,18 @@ export async function POST(
 
     switch (action as AllowedAction) {
       case "refresh_status": {
-        try {
-          const data = await openclawExec(["status"]);
-          return NextResponse.json({ success: true, message: "Gateway status refreshed", data });
-        } catch {
-          return NextResponse.json({ success: true, message: "Gateway status (cached)", data: mockGateway });
-        }
+        const data = await openclawExec(["status"]);
+        return NextResponse.json({ success: true, message: "Gateway status refreshed", data });
       }
 
       case "list_sessions": {
-        try {
-          const data = await openclawExec(["sessions"]);
-          return NextResponse.json({ success: true, message: "Sessions retrieved", data });
-        } catch {
-          return NextResponse.json({ success: true, message: `Returned ${mockSessions.length} sessions (cached)`, data: mockSessions });
-        }
+        const data = await openclawExec(["sessions"]);
+        return NextResponse.json({ success: true, message: "Sessions retrieved", data });
       }
 
       case "list_cron": {
-        try {
-          const data = await openclawExec(["cron", "list"]);
-          return NextResponse.json({ success: true, message: "Cron jobs retrieved", data });
-        } catch {
-          return NextResponse.json({ success: true, message: `Returned ${mockCronJobs.length} cron jobs (cached)`, data: mockCronJobs });
-        }
+        const data = await openclawExec(["cron", "list"]);
+        return NextResponse.json({ success: true, message: "Cron jobs retrieved", data });
       }
 
       case "gateway_restart": {
@@ -81,25 +68,18 @@ export async function POST(
           );
         }
 
-        try {
-          await openclawExec(["gateway", "restart"]);
-          return NextResponse.json({
-            success: true,
-            message: "Gateway restart initiated",
-            data: { action: "gateway_restart", initiatedAt: new Date().toISOString() },
-          });
-        } catch {
-          return NextResponse.json(
-            { success: false, message: "Failed to restart gateway — is it running?" },
-            { status: 500 }
-          );
-        }
+        await openclawExec(["gateway", "restart"]);
+        return NextResponse.json({
+          success: true,
+          message: "Gateway restart initiated",
+          data: { action: "gateway_restart", initiatedAt: new Date().toISOString() },
+        });
       }
     }
-  } catch {
+  } catch (err) {
     return NextResponse.json(
-      { success: false, message: "Internal server error" },
-      { status: 500 }
+      { success: false, message: `Gateway error: ${err instanceof Error ? err.message : "unknown"}` },
+      { status: 502 }
     );
   }
 }

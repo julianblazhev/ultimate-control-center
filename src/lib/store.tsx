@@ -1,18 +1,27 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
-import { mockAgents, mockTasks, mockActivity } from "./mock-data";
-import type { Agent, Task, ChatMessage, ActivityEvent } from "./types";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import type { Agent, Task, ChatMessage, ActivityEvent, Session, CronJob, GatewayStatus } from "./types";
 
 // ─── Store Shape ─────────────────────────────────────────────────────────────
 
 interface Store {
+  // Data
   agents: Agent[];
   tasks: Task[];
+  sessions: Session[];
+  cronJobs: CronJob[];
+  gateway: GatewayStatus;
   activity: ActivityEvent[];
   chatMessages: Record<string, ChatMessage[]>;
 
-  // Mutations
+  // Loading / error
+  loading: boolean;
+  error: string | null;
+  lastFetched: string | null;
+
+  // Actions
+  refresh: () => Promise<void>;
   createTask: (title: string, description?: string, priority?: Task["priority"], status?: Task["status"], assignee?: string, project?: string) => void;
   assignTask: (agentId: string, title: string, description?: string, priority?: Task["priority"], project?: string) => void;
   sendMessage: (agentId: string, content: string) => void;
@@ -20,6 +29,8 @@ interface Store {
   updateAgentStatus: (agentId: string, status: Agent["status"], task?: string) => void;
   addActivity: (message: string, type?: ActivityEvent["type"], severity?: ActivityEvent["severity"]) => void;
 }
+
+const EMPTY_GATEWAY: GatewayStatus = { status: "offline", version: "unknown", uptime: 0, activeSessions: 0, totalSessions: 0, cronJobs: 0 };
 
 const StoreContext = createContext<Store | null>(null);
 
@@ -31,24 +42,53 @@ export function useStore(): Store {
 
 // ─── Provider ────────────────────────────────────────────────────────────────
 
-// Pre-seed some chat messages for agents with tasks
-const INITIAL_CHAT: Record<string, ChatMessage[]> = {
-  "a-001": [
-    { id: "cm-001", agentId: "a-001", role: "agent", content: "Good morning. I've reviewed the pending tasks and started coordinating today's operations. Alex is on the auth PR, Quill is writing the blog post, and Charlie is fixing the pipeline timeout.", timestamp: "2026-03-13T09:00:00Z" },
-  ],
-  "a-004": [
-    { id: "cm-002", agentId: "a-004", role: "agent", content: "I'm working on the Q1 blog post draft. Currently on section 3 — product roadmap highlights. Should have a first draft ready by end of day.", timestamp: "2026-03-13T13:00:00Z" },
-  ],
-  "a-008": [
-    { id: "cm-003", agentId: "a-008", role: "agent", content: "Found the root cause of the pipeline timeout. It's a connection pool exhaustion issue when processing batches > 10k rows. Working on a fix now.", timestamp: "2026-03-13T13:30:00Z" },
-  ],
-};
-
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [agents, setAgents] = useState<Agent[]>(mockAgents);
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
-  const [activity, setActivity] = useState<ActivityEvent[]>(mockActivity);
-  const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>(INITIAL_CHAT);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
+  const [gateway, setGateway] = useState<GatewayStatus>(EMPTY_GATEWAY);
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastFetched, setLastFetched] = useState<string | null>(null);
+  const fetchedOnce = useRef(false);
+
+  // ── Fetch snapshot from gateway ──
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/snapshot");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      const { data, timestamp } = await res.json();
+      setAgents(data.agents || []);
+      setSessions(data.sessions || []);
+      setCronJobs(data.cronJobs || []);
+      setGateway(data.gateway || EMPTY_GATEWAY);
+      if (data.errors?.length) {
+        setError(`Partial data: ${data.errors.join("; ")}`);
+      }
+      setLastFetched(timestamp);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch gateway data");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Fetch on mount (once)
+  useEffect(() => {
+    if (fetchedOnce.current) return;
+    fetchedOnce.current = true;
+    refresh();
+  }, [refresh]);
+
+  // ── Mutations (local state only — these don't exist in gateway CLI) ──
 
   const addActivity = useCallback(
     (message: string, type: ActivityEvent["type"] = "task", severity: ActivityEvent["severity"] = "info") => {
@@ -68,14 +108,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (title: string, description?: string, priority: Task["priority"] = "medium", status: Task["status"] = "backlog", assignee?: string, project?: string) => {
       const now = new Date().toISOString();
 
-      // If assigning to an agent, verify they are available
       if (assignee) {
         const agent = agents.find((a) => a.name === assignee);
         if (agent && (agent.status === "busy" || agent.status === "online") && agent.currentTask) {
-          // Agent is busy — create as backlog instead
           const newTask: Task = {
-            id: `t-${Date.now()}`,
-            title, description, status: "backlog", priority, assignee, project, tags: [],
+            id: `t-${Date.now()}`, title, description, status: "backlog", priority, assignee, project, tags: [],
             createdAt: now, updatedAt: now,
           };
           setTasks((prev) => [newTask, ...prev]);
@@ -85,19 +122,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
 
       const newTask: Task = {
-        id: `t-${Date.now()}`,
-        title, description, status, priority, assignee, project, tags: [],
+        id: `t-${Date.now()}`, title, description, status, priority, assignee, project, tags: [],
         createdAt: now, updatedAt: now,
       };
       setTasks((prev) => [newTask, ...prev]);
 
-      // If assigned to an available agent, update their status
       if (assignee && status === "in_progress") {
         setAgents((prev) =>
           prev.map((a) =>
-            a.name === assignee
-              ? { ...a, status: "busy" as const, currentTask: title, lastSeen: now }
-              : a
+            a.name === assignee ? { ...a, status: "busy" as const, currentTask: title, lastSeen: now } : a
           )
         );
       }
@@ -111,52 +144,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (agentId: string, title: string, description?: string, priority: Task["priority"] = "medium", project?: string) => {
       const agent = agents.find((a) => a.id === agentId);
       if (!agent) return;
-
-      // Guard: don't assign to busy/working agents
       if ((agent.status === "busy" || agent.status === "online") && agent.currentTask) return;
 
       const now = new Date().toISOString();
-      const taskId = `t-${Date.now()}`;
-
-      // Create the task
       const newTask: Task = {
-        id: taskId,
-        title,
-        description,
-        status: "in_progress",
-        priority,
-        assignee: agent.name,
-        project,
-        tags: [],
-        createdAt: now,
-        updatedAt: now,
+        id: `t-${Date.now()}`, title, description, status: "in_progress", priority,
+        assignee: agent.name, project, tags: [], createdAt: now, updatedAt: now,
       };
 
       setTasks((prev) => [newTask, ...prev]);
-
-      // Update agent status
       setAgents((prev) =>
-        prev.map((a) =>
-          a.id === agentId
-            ? { ...a, status: "busy" as const, currentTask: title, lastSeen: now }
-            : a
-        )
+        prev.map((a) => a.id === agentId ? { ...a, status: "busy" as const, currentTask: title, lastSeen: now } : a)
       );
 
-      // Add chat message from system
       const msg: ChatMessage = {
-        id: `cm-${Date.now()}`,
-        agentId,
-        role: "agent",
+        id: `cm-${Date.now()}`, agentId, role: "agent",
         content: `Got it. I'll start working on "${title}" right away.`,
         timestamp: now,
       };
-      setChatMessages((prev) => ({
-        ...prev,
-        [agentId]: [...(prev[agentId] ?? []), msg],
-      }));
-
-      // Activity
+      setChatMessages((prev) => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), msg] }));
       addActivity(`Task "${title}" assigned to ${agent.name}`, "task", "info");
     },
     [agents, addActivity]
@@ -167,41 +173,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString();
       const agent = agents.find((a) => a.id === agentId);
 
-      // User message
-      const userMsg: ChatMessage = {
-        id: `cm-${Date.now()}`,
-        agentId,
-        role: "user",
-        content,
-        timestamp: now,
-      };
-
-      // Simulated agent reply
+      const userMsg: ChatMessage = { id: `cm-${Date.now()}`, agentId, role: "user", content, timestamp: now };
       const replies = [
-        `Understood. I'll look into that.`,
-        `On it. I'll have an update for you shortly.`,
-        `Good question. Let me check and get back to you.`,
-        `Noted. I'll factor that into my current work.`,
-        `Thanks for the heads up. Adjusting my approach accordingly.`,
+        "Understood. I'll look into that.",
+        "On it. I'll have an update for you shortly.",
+        "Good question. Let me check and get back to you.",
+        "Noted. I'll factor that into my current work.",
+        "Thanks for the heads up. Adjusting my approach accordingly.",
       ];
-      const reply = replies[Math.floor(Math.random() * replies.length)];
-
       const agentMsg: ChatMessage = {
-        id: `cm-${Date.now() + 1}`,
-        agentId,
-        role: "agent",
-        content: reply,
+        id: `cm-${Date.now() + 1}`, agentId, role: "agent",
+        content: replies[Math.floor(Math.random() * replies.length)],
         timestamp: new Date(Date.now() + 1500).toISOString(),
       };
 
-      setChatMessages((prev) => ({
-        ...prev,
-        [agentId]: [...(prev[agentId] ?? []), userMsg, agentMsg],
-      }));
-
-      if (agent) {
-        addActivity(`Message sent to ${agent.name}`, "agent", "info");
-      }
+      setChatMessages((prev) => ({ ...prev, [agentId]: [...(prev[agentId] ?? []), userMsg, agentMsg] }));
+      if (agent) addActivity(`Message sent to ${agent.name}`, "agent", "info");
     },
     [agents, addActivity]
   );
@@ -214,29 +201,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       setTasks((prev) =>
         prev.map((t) => {
-          if (t.id === taskId) {
-            taskTitle = t.title;
-            taskAssignee = t.assignee ?? "";
-            return { ...t, status, updatedAt: now };
-          }
+          if (t.id === taskId) { taskTitle = t.title; taskAssignee = t.assignee ?? ""; return { ...t, status, updatedAt: now }; }
           return t;
         })
       );
 
-      // If task is done, free up the agent
       if (status === "done" && taskAssignee) {
         setAgents((prev) =>
           prev.map((a) =>
             a.name === taskAssignee && a.currentTask === taskTitle
-              ? { ...a, status: "idle" as const, currentTask: undefined, lastSeen: now }
-              : a
+              ? { ...a, status: "idle" as const, currentTask: undefined, lastSeen: now } : a
           )
         );
       }
 
-      if (taskTitle) {
-        addActivity(`Task "${taskTitle}" moved to ${status.replace("_", " ")}`, "task", status === "done" ? "success" : "info");
-      }
+      if (taskTitle) addActivity(`Task "${taskTitle}" moved to ${status.replace("_", " ")}`, "task", status === "done" ? "success" : "info");
     },
     [addActivity]
   );
@@ -244,11 +223,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const updateAgentStatus = useCallback(
     (agentId: string, status: Agent["status"], task?: string) => {
       const now = new Date().toISOString();
-      setAgents((prev) =>
-        prev.map((a) =>
-          a.id === agentId ? { ...a, status, currentTask: task, lastSeen: now } : a
-        )
-      );
+      setAgents((prev) => prev.map((a) => a.id === agentId ? { ...a, status, currentTask: task, lastSeen: now } : a));
     },
     []
   );
@@ -256,16 +231,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   return (
     <StoreContext.Provider
       value={{
-        agents,
-        tasks,
-        activity,
-        chatMessages,
-        createTask,
-        assignTask,
-        sendMessage,
-        updateTaskStatus,
-        updateAgentStatus,
-        addActivity,
+        agents, tasks, sessions, cronJobs, gateway, activity, chatMessages,
+        loading, error, lastFetched,
+        refresh, createTask, assignTask, sendMessage, updateTaskStatus, updateAgentStatus, addActivity,
       }}
     >
       {children}

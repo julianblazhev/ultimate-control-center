@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { mockGateway } from "@/lib/mock-data";
+import { useStore } from "@/lib/store";
 import type { GatewayStatus, ActionResult } from "@/lib/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -615,7 +615,8 @@ function ActionCard({ action, loading, onTrigger }: ActionCardProps) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SystemPage() {
-  const [gateway] = useState<GatewayStatus>(mockGateway);
+  const store = useStore();
+  const gateway: GatewayStatus = store.gateway;
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);

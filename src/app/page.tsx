@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { mockGateway, mockSessions } from "@/lib/mock-data";
 import PixelAvatar, { getVisuals } from "@/components/PixelAvatar";
 import AgentPanel from "@/components/AgentPanel";
 
@@ -72,6 +71,32 @@ export default function OverviewPage() {
   const activeTasks = [...tasksByStatus.in_progress, ...tasksByStatus.review]
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
+  if (store.loading) {
+    return (
+      <div className="min-h-[calc(100vh-56px)] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-[13px] text-[var(--text-muted)]">Loading gateway data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (store.error && store.agents.length === 0) {
+    return (
+      <div className="min-h-[calc(100vh-56px)] flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-3">
+            <span className="text-red-400 text-lg">!</span>
+          </div>
+          <p className="text-[14px] text-[var(--text-primary)] font-medium mb-1">Gateway Unreachable</p>
+          <p className="text-[12px] text-[var(--text-muted)] mb-4">{store.error}</p>
+          <button onClick={() => store.refresh()} className="text-[12px] text-blue-400 hover:text-blue-300 transition-colors">↻ Retry</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="min-h-[calc(100vh-56px)]"
@@ -87,11 +112,14 @@ export default function OverviewPage() {
             Real-time status of your AI workforce
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-[11px] text-green-400 font-medium">
-            Gateway v{mockGateway.version} &middot; up {formatUptime(mockGateway.uptime)}
-          </span>
+        <div className="flex items-center gap-3">
+          <button onClick={() => store.refresh()} className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors">↻ Refresh</button>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${store.gateway.status === "online" ? "bg-green-400 animate-pulse" : "bg-red-400"}`} />
+            <span className={`text-[11px] font-medium ${store.gateway.status === "online" ? "text-green-400" : "text-red-400"}`}>
+              {store.gateway.status === "online" ? `Gateway v${store.gateway.version} · up ${formatUptime(store.gateway.uptime)}` : "Gateway Offline"}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -312,9 +340,9 @@ export default function OverviewPage() {
             <h2 className="text-[13px] font-semibold text-[var(--text-primary)] mb-3">System</h2>
             <div className="grid grid-cols-3 gap-2 mb-3">
               {[
-                { label: "Sessions", value: mockSessions.filter((s) => s.status === "active").length, total: mockSessions.length },
-                { label: "Memory", value: `${mockGateway.memoryUsage}%`, color: (mockGateway.memoryUsage ?? 0) > 80 ? "#f87171" : (mockGateway.memoryUsage ?? 0) > 60 ? "#fbbf24" : "#4ade80" },
-                { label: "Cron Jobs", value: mockGateway.cronJobs },
+                { label: "Sessions", value: store.gateway.activeSessions, total: store.gateway.totalSessions },
+                { label: "Memory", value: store.gateway.memoryUsage !== undefined ? `${store.gateway.memoryUsage}%` : "N/A", color: (store.gateway.memoryUsage ?? 0) > 80 ? "#f87171" : (store.gateway.memoryUsage ?? 0) > 60 ? "#fbbf24" : "#4ade80" },
+                { label: "Cron Jobs", value: store.gateway.cronJobs },
               ].map((s) => (
                 <div
                   key={s.label}
@@ -336,20 +364,20 @@ export default function OverviewPage() {
             </div>
 
             {/* Memory bar */}
-            {mockGateway.memoryUsage !== undefined && (
+            {store.gateway.memoryUsage !== undefined && (
               <div>
                 <div className="flex justify-between text-[11px] mb-1">
                   <span className="text-[var(--text-muted)]">Memory</span>
-                  <span style={{ color: mockGateway.memoryUsage > 80 ? "#f87171" : mockGateway.memoryUsage > 60 ? "#fbbf24" : "#4ade80" }}>
-                    {mockGateway.memoryUsage}%
+                  <span style={{ color: store.gateway.memoryUsage > 80 ? "#f87171" : store.gateway.memoryUsage > 60 ? "#fbbf24" : "#4ade80" }}>
+                    {store.gateway.memoryUsage}%
                   </span>
                 </div>
                 <div className="w-full rounded-full h-1" style={{ background: "rgba(255,255,255,0.06)" }}>
                   <div
                     className="h-1 rounded-full transition-all"
                     style={{
-                      width: `${mockGateway.memoryUsage}%`,
-                      background: mockGateway.memoryUsage > 80 ? "#f87171" : mockGateway.memoryUsage > 60 ? "#fbbf24" : "#4ade80",
+                      width: `${store.gateway.memoryUsage}%`,
+                      background: store.gateway.memoryUsage > 80 ? "#f87171" : store.gateway.memoryUsage > 60 ? "#fbbf24" : "#4ade80",
                     }}
                   />
                 </div>

@@ -1,6 +1,7 @@
 "use client";
 
-import { mockProjects } from "@/lib/mock-data";
+import { useState } from "react";
+import type { Project } from "@/lib/types";
 import PixelAvatar, { getVisuals } from "@/components/PixelAvatar";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -27,22 +28,28 @@ const PRIORITY_STYLE: Record<string, { bg: string; text: string }> = {
   low: { bg: "rgba(148,163,184,0.15)", text: "text-gray-400" },
 };
 
-// ─── Derived stats ────────────────────────────────────────────────────────────
-
-const totalProjects = mockProjects.length;
-const activeCount = mockProjects.filter((p) => p.status === "active").length;
-const planningCount = mockProjects.filter((p) => p.status === "planning").length;
-
-// Assign a priority to each project based on progress
 function getProjectPriority(progress: number): string {
   if (progress >= 70) return "high";
   if (progress >= 30) return "medium";
   return "low";
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function ProjectsPage() {
+  const [projects] = useState<Project[]>([]);
+  const loading = false;
+
+  const totalProjects = projects.length;
+  const activeCount = projects.filter((p) => p.status === "active").length;
+  const planningCount = projects.filter((p) => p.status === "planning").length;
+
+  if (loading) {
+    return (
+      <div className="min-h-[calc(100vh-56px)] flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div
       className="min-h-[calc(100vh-56px)]"
@@ -68,7 +75,13 @@ export default function ProjectsPage() {
 
       {/* Project cards grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-6">
-        {mockProjects.map((project) => {
+        {projects.length === 0 && (
+          <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-[14px] text-[var(--text-muted)]">No projects found</p>
+            <p className="text-[12px] text-[var(--text-muted)] mt-1">Projects will appear here when available from the gateway</p>
+          </div>
+        )}
+        {projects.map((project) => {
           const statusStyle = STATUS_STYLE[project.status] ?? STATUS_STYLE.active;
           const priority = getProjectPriority(project.progress);
           const priorityStyle = PRIORITY_STYLE[priority];
