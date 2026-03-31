@@ -50,7 +50,12 @@ export class OpenClawClient {
     this.connecting = true;
 
     try {
+      console.log(`[gateway] Connecting to ${this.url} (token: ${this.token ? "yes" : "no"})...`);
       await this._doConnect();
+      console.log("[gateway] Connected successfully");
+    } catch (err) {
+      console.error("[gateway] Connection failed:", err instanceof Error ? err.message : err);
+      throw err;
     } finally {
       this.connecting = false;
     }
@@ -179,23 +184,10 @@ export class OpenClawClient {
   }
 
   private async _sendConnect(ws: WebSocket, nonce: string | null): Promise<void> {
-    const identity = loadOrCreateDeviceIdentity();
-    const signedAtMs = Date.now();
     const role = "operator";
     const scopes = [...OPERATOR_SCOPES];
     const clientId = "mission-control";
     const clientMode = "ui";
-
-    const authPayload = buildDeviceAuthPayload({
-      deviceId: identity.deviceId,
-      clientId,
-      clientMode,
-      role,
-      scopes,
-      signedAtMs,
-      token: this.token,
-      nonce,
-    });
 
     const connectId = randomUUID();
     const params: Record<string, unknown> = {
@@ -204,17 +196,39 @@ export class OpenClawClient {
       role,
       scopes,
       client: { id: clientId, version: "1.0.0", platform: "node", mode: clientMode },
-      device: {
-        id: identity.deviceId,
-        publicKey: publicKeyRawBase64url(identity.publicKeyPem),
-        signature: signPayload(identity.privateKeyPem, authPayload),
-        signedAt: signedAtMs,
-        ...(nonce ? { nonce } : {}),
-      },
     };
 
+    // Token-only auth (preferred in Docker / managed deployments)
     if (this.token) {
       params.auth = { token: this.token };
+    }
+
+    // Only add device identity when no token is available (local dev)
+    if (!this.token) {
+      try {
+        const identity = loadOrCreateDeviceIdentity();
+        const signedAtMs = Date.now();
+        const authPayload = buildDeviceAuthPayload({
+          deviceId: identity.deviceId,
+          clientId,
+          clientMode,
+          role,
+          scopes,
+          signedAtMs,
+          token: null,
+          nonce,
+        });
+
+        params.device = {
+          id: identity.deviceId,
+          publicKey: publicKeyRawBase64url(identity.publicKeyPem),
+          signature: signPayload(identity.privateKeyPem, authPayload),
+          signedAt: signedAtMs,
+          ...(nonce ? { nonce } : {}),
+        };
+      } catch (err) {
+        console.error("[gateway] Device identity failed, connecting without:", err instanceof Error ? err.message : err);
+      }
     }
 
     const msg = JSON.stringify({ type: "req", id: connectId, method: "connect", params });
@@ -230,7 +244,9 @@ export class OpenClawClient {
           clearTimeout(timer);
           ws.removeListener("message", handler);
           if (data.ok === false || data.error) {
-            reject(new Error(data.error?.message || "Connect rejected"));
+            const reason = data.error?.message || JSON.stringify(data.error) || "Connect rejected";
+            console.error("[gateway] Connect rejected:", reason);
+            reject(new Error(reason));
           } else {
             resolve();
           }

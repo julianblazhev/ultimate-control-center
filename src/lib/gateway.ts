@@ -22,7 +22,8 @@ export async function gatewayCall<T>(method: string, params: Record<string, unkn
       const client = getOpenClawClient();
       const result = await client.call<T>(method, params);
       return result;
-    } catch {
+    } catch (err) {
+      console.error(`[gateway] RPC failed for ${method}:`, err instanceof Error ? err.message : err);
       // Fall through to CLI
     }
   }
