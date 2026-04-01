@@ -31,7 +31,7 @@ interface PendingRequest {
 export class OpenClawClient {
   private ws: WebSocket | null = null;
   private connected = false;
-  private connecting = false;
+  private connectPromise: Promise<void> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pending = new Map<string, PendingRequest>();
   private eventHandlers: EventHandler[] = [];
@@ -46,28 +46,37 @@ export class OpenClawClient {
   // ── Public API ─────────────────────────────────────────────
 
   async connect(): Promise<void> {
-    if (this.connected || this.connecting) return;
-    this.connecting = true;
+    // If already connected, return immediately
+    if (this.connected && this.ws?.readyState === WebSocket.OPEN) return;
 
-    try {
-      console.log(`[gateway] Connecting to ${this.url} (token: ${this.token ? "yes" : "no"})...`);
-      await this._doConnect();
-      console.log("[gateway] Connected successfully");
-    } catch (err) {
-      console.error("[gateway] Connection failed:", err instanceof Error ? err.message : err);
-      throw err;
-    } finally {
-      this.connecting = false;
-    }
+    // If a connection attempt is in flight, wait for it
+    if (this.connectPromise) return this.connectPromise;
+
+    this.connectPromise = (async () => {
+      try {
+        console.log(`[gateway] Connecting to ${this.url} (token: ${this.token ? "yes" : "no"})...`);
+        await this._doConnect();
+        console.log("[gateway] Connected successfully");
+      } catch (err) {
+        console.error("[gateway] Connection failed:", err instanceof Error ? err.message : err);
+        throw err;
+      } finally {
+        this.connectPromise = null;
+      }
+    })();
+
+    return this.connectPromise;
   }
 
   async call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    if (!this.connected) {
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
     }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error("Gateway not connected");
     }
+
+    console.log(`[gateway] RPC call: ${method}`);
 
     const id = randomUUID();
     const message = JSON.stringify({ type: "req", id, method, params });
