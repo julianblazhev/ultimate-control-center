@@ -7,12 +7,6 @@
 import WebSocket from "ws";
 import { randomUUID } from "crypto";
 import { getConfig } from "../config";
-import {
-  loadOrCreateDeviceIdentity,
-  publicKeyRawBase64url,
-  signPayload,
-  buildDeviceAuthPayload,
-} from "./device-identity";
 
 const PROTOCOL_VERSION = 3;
 const CONNECT_TIMEOUT_MS = 10_000;
@@ -116,6 +110,17 @@ export class OpenClawClient {
 
   // ── Connection ─────────────────────────────────────────────
 
+  private _buildOrigin(): string {
+    try {
+      const parsed = new URL(this.url);
+      const scheme = parsed.protocol === "wss:" ? "https" : "http";
+      const host = parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname;
+      return `${scheme}://${host}`;
+    } catch {
+      return "http://localhost";
+    }
+  }
+
   private async _doConnect(): Promise<void> {
     const wsUrl = this.token
       ? `${this.url}?token=${encodeURIComponent(this.token)}`
@@ -127,7 +132,9 @@ export class OpenClawClient {
         ws.close();
       }, CONNECT_TIMEOUT_MS);
 
-      const ws = new WebSocket(wsUrl, { handshakeTimeout: CONNECT_TIMEOUT_MS });
+      // Send origin header — gateway validates it against controlUi.allowedOrigins
+      const origin = this._buildOrigin();
+      const ws = new WebSocket(wsUrl, { handshakeTimeout: CONNECT_TIMEOUT_MS, origin });
       this.ws = ws;
       let firstMessage = true;
 
@@ -192,45 +199,19 @@ export class OpenClawClient {
     });
   }
 
-  private async _sendConnect(ws: WebSocket, nonce: string | null): Promise<void> {
+  private async _sendConnect(ws: WebSocket, _nonce: string | null): Promise<void> {
     const role = "operator";
     const scopes = [...OPERATOR_SCOPES];
-    const clientId = "cli";
-    const clientMode = "cli";
 
     const connectId = randomUUID();
-    const identity = loadOrCreateDeviceIdentity();
-    const signedAtMs = Date.now();
-    const authPayload = buildDeviceAuthPayload({
-      deviceId: identity.deviceId,
-      clientId,
-      clientMode,
-      role,
-      scopes,
-      signedAtMs,
-      token: this.token,
-      nonce,
-    });
-
     const params: Record<string, unknown> = {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       role,
       scopes,
-      client: { id: clientId, version: "1.0.0", platform: "node", mode: clientMode },
-      device: {
-        id: identity.deviceId,
-        publicKey: publicKeyRawBase64url(identity.publicKeyPem),
-        signature: signPayload(identity.privateKeyPem, authPayload),
-        signedAt: signedAtMs,
-        ...(nonce ? { nonce } : {}),
-      },
+      client: { id: "openclaw-control-ui", version: "1.0.0", platform: "node", mode: "webchat" },
+      auth: { token: this.token },
     };
-
-    // Always include token when available (alongside device identity)
-    if (this.token) {
-      params.auth = { token: this.token };
-    }
 
     const msg = JSON.stringify({ type: "req", id: connectId, method: "connect", params });
     ws.send(msg);
