@@ -186,8 +186,8 @@ export class OpenClawClient {
   private async _sendConnect(ws: WebSocket, nonce: string | null): Promise<void> {
     const role = "operator";
     const scopes = [...OPERATOR_SCOPES];
-    const clientId = "mission-control";
-    const clientMode = "ui";
+    const clientId = "openclaw-control-ui";
+    const clientMode = "webchat";
 
     const connectId = randomUUID();
     const params: Record<string, unknown> = {
