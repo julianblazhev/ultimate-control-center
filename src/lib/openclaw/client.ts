@@ -107,6 +107,18 @@ export class OpenClawClient {
 
   // ── Connection ─────────────────────────────────────────────
 
+  private _buildOrigin(): string {
+    // Derive an http(s) origin from the WebSocket URL for the controlUi origin check
+    try {
+      const parsed = new URL(this.url);
+      const scheme = parsed.protocol === "wss:" ? "https" : "http";
+      const host = parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname;
+      return `${scheme}://${host}`;
+    } catch {
+      return "http://localhost";
+    }
+  }
+
   private async _doConnect(): Promise<void> {
     const wsUrl = this.token
       ? `${this.url}?token=${encodeURIComponent(this.token)}`
@@ -118,7 +130,8 @@ export class OpenClawClient {
         ws.close();
       }, CONNECT_TIMEOUT_MS);
 
-      const ws = new WebSocket(wsUrl, { handshakeTimeout: CONNECT_TIMEOUT_MS });
+      const origin = this._buildOrigin();
+      const ws = new WebSocket(wsUrl, { handshakeTimeout: CONNECT_TIMEOUT_MS, origin });
       this.ws = ws;
       let firstMessage = true;
 
