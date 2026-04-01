@@ -116,18 +116,6 @@ export class OpenClawClient {
 
   // ── Connection ─────────────────────────────────────────────
 
-  private _buildOrigin(): string {
-    // Derive an http(s) origin from the WebSocket URL for the controlUi origin check
-    try {
-      const parsed = new URL(this.url);
-      const scheme = parsed.protocol === "wss:" ? "https" : "http";
-      const host = parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname;
-      return `${scheme}://${host}`;
-    } catch {
-      return "http://localhost";
-    }
-  }
-
   private async _doConnect(): Promise<void> {
     const wsUrl = this.token
       ? `${this.url}?token=${encodeURIComponent(this.token)}`
@@ -139,8 +127,7 @@ export class OpenClawClient {
         ws.close();
       }, CONNECT_TIMEOUT_MS);
 
-      const origin = this._buildOrigin();
-      const ws = new WebSocket(wsUrl, { handshakeTimeout: CONNECT_TIMEOUT_MS, origin });
+      const ws = new WebSocket(wsUrl, { handshakeTimeout: CONNECT_TIMEOUT_MS });
       this.ws = ws;
       let firstMessage = true;
 
@@ -208,49 +195,41 @@ export class OpenClawClient {
   private async _sendConnect(ws: WebSocket, nonce: string | null): Promise<void> {
     const role = "operator";
     const scopes = [...OPERATOR_SCOPES];
-    const clientId = "openclaw-control-ui";
-    const clientMode = "webchat";
+    const clientId = "cli";
+    const clientMode = "cli";
 
     const connectId = randomUUID();
+    const identity = loadOrCreateDeviceIdentity();
+    const signedAtMs = Date.now();
+    const authPayload = buildDeviceAuthPayload({
+      deviceId: identity.deviceId,
+      clientId,
+      clientMode,
+      role,
+      scopes,
+      signedAtMs,
+      token: this.token,
+      nonce,
+    });
+
     const params: Record<string, unknown> = {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       role,
       scopes,
       client: { id: clientId, version: "1.0.0", platform: "node", mode: clientMode },
+      device: {
+        id: identity.deviceId,
+        publicKey: publicKeyRawBase64url(identity.publicKeyPem),
+        signature: signPayload(identity.privateKeyPem, authPayload),
+        signedAt: signedAtMs,
+        ...(nonce ? { nonce } : {}),
+      },
     };
 
-    // Token-only auth (preferred in Docker / managed deployments)
+    // Always include token when available (alongside device identity)
     if (this.token) {
       params.auth = { token: this.token };
-    }
-
-    // Only add device identity when no token is available (local dev)
-    if (!this.token) {
-      try {
-        const identity = loadOrCreateDeviceIdentity();
-        const signedAtMs = Date.now();
-        const authPayload = buildDeviceAuthPayload({
-          deviceId: identity.deviceId,
-          clientId,
-          clientMode,
-          role,
-          scopes,
-          signedAtMs,
-          token: null,
-          nonce,
-        });
-
-        params.device = {
-          id: identity.deviceId,
-          publicKey: publicKeyRawBase64url(identity.publicKeyPem),
-          signature: signPayload(identity.privateKeyPem, authPayload),
-          signedAt: signedAtMs,
-          ...(nonce ? { nonce } : {}),
-        };
-      } catch (err) {
-        console.error("[gateway] Device identity failed, connecting without:", err instanceof Error ? err.message : err);
-      }
     }
 
     const msg = JSON.stringify({ type: "req", id: connectId, method: "connect", params });
