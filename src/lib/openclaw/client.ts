@@ -132,9 +132,7 @@ export class OpenClawClient {
         ws.close();
       }, CONNECT_TIMEOUT_MS);
 
-      // Send origin header — gateway validates it against controlUi.allowedOrigins
-      const origin = this._buildOrigin();
-      const ws = new WebSocket(wsUrl, { handshakeTimeout: CONNECT_TIMEOUT_MS, origin });
+      const ws = new WebSocket(wsUrl, { handshakeTimeout: CONNECT_TIMEOUT_MS });
       this.ws = ws;
       let firstMessage = true;
 
@@ -209,7 +207,7 @@ export class OpenClawClient {
       maxProtocol: PROTOCOL_VERSION,
       role,
       scopes,
-      client: { id: "openclaw-control-ui", version: "1.0.0", platform: "node", mode: "webchat" },
+      client: { id: "cli", version: "1.0.0", platform: "node", mode: "cli" },
       auth: { token: this.token },
     };
 
